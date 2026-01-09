@@ -1,0 +1,141 @@
+# Use a stable Docker Compose version
+version: '3.8'
+
+volumes:
+  zookeeper_data:
+  kafka_data:
+  pd_data:
+  tikv_data:
+
+# Define a custom bridge network for internal communication
+networks:
+  streaming-net:
+    # Use the standard bridge driver
+    driver: bridge
+
+services:
+  # Service 1: Zookeeper (Required to manage Kafka)
+  zookeeper:
+    # Use specific version for stability
+    image: bitnami/zookeeper:3.9.1
+    # Connect to our custom network
+    networks:
+      - streaming-net
+    # Expose port 2181 (Standard Zookeeper port)
+    ports:
+      - "2181:2181"
+    # Configuration environment variables
+    environment:
+      # Allow connection without password (Dev only)
+      - ALLOW_ANONYMOUS_LOGIN=yes
+  
+# Service 2: Kafka Broker (The message queue)
+  kafka:
+    # Use specific version compatible with Zookeeper
+    image: bitnami/kafka:3.6.1
+    # Connect to the same network
+    networks:
+      - streaming-net
+    # Expose port 9092 (Standard Kafka port)
+    ports:
+      - "9092:9092"
+    # Configuration environment variables
+    environment:
+      # Unique ID for the broker in the cluster
+      - KAFKA_BROKER_ID=1
+      # Connection string to Zookeeper (service_name:port)
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      # Internal listener (How Kafka binds to the interface)
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      # External listener (The address clients MUST use)
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      # Allow unencrypted traffic (Dev only)
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    # Ensure Zookeeper starts before Kafka
+    depends_on:
+      - zookeeper
+
+# Service 3: TiDB Placement Driver (The "Brain" of the DB)
+  pd:
+    # Official image from PingCAP
+    image: pingcap/pd:v7.5.0
+    # Connect to our network
+    networks:
+      - streaming-net
+    # Expose client port
+    ports:
+      - "2379:2379"
+    # Mount volume for persistence
+    volumes:
+      - pd_data:/data
+    # Configuration arguments (Like command line flags)
+    command:
+      - --name=pd
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-client-urls=http://pd:2379
+      - --advertise-peer-urls=http://pd:2380
+      - --initial-cluster=pd=http://pd:2380
+      - --data-dir=/data/pd
+
+# Service 4: TiKV (The distributed storage engine)
+  tikv:
+    # Official image, same version as PD
+    image: pingcap/tikv:v7.5.0
+    # Connect to our network
+    networks:
+      - streaming-net
+    # Expose storage port
+    ports:
+      - "20160:20160"
+    # Mount volume for persistence
+    volumes:
+      - tikv_data:/data
+    # Start command
+    command:
+      - --addr=0.0.0.0:20160                # Listen on all interfaces inside container
+      - --advertise-addr=tikv:20160         # Tell others to reach me at "tikv:20160"
+      - --data-dir=/data/tikv               # Save data here
+      - --pd=pd:2379                        # Connect to PD (The Brain)
+    # Wait for PD to start first
+    depends_on:
+      - pd
+
+# Service 5: TiDB Server (The SQL Interface / Stateless)
+  tidb:
+    # Official image
+    image: pingcap/tidb:v7.5.0
+    # Connect to network
+    networks:
+      - streaming-net
+    # Expose SQL port (Standard is 4000)
+    ports:
+      - "4000:4000"
+    # Start command
+    command:
+      - --store=tikv            # Tell it to use TiKV for storage
+      - --path=pd:2379          # Connect to PD (The Brain) to find the storage
+    # Wait for the storage cluster to be ready
+    depends_on:
+      - pd
+      - tikv
+  
+  # Service 6: TiCDC (Captures changes and sends them to Kafka)
+  ticdc:
+    # Official image
+    image: pingcap/ticdc:v7.5.0
+    # Connect to network
+    networks:
+      - streaming-net
+    # Expose management port
+    ports:
+      - "8300:8300"
+    # Start command
+    command:
+      - --pd=pd:2379            # Connect to PD to watch for changes
+      - --addr=0.0.0.0:8300     # Listen for commands on port 8300
+      - --advertise-addr=ticdc:8300
+    # Wait for the cluster to be ready
+    depends_on:
+      - pd
+      - tikv
