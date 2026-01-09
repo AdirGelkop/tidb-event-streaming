@@ -1,54 +1,62 @@
 # TiDB Event Streaming Pipeline
 
-A real-time Change Data Capture (CDC) pipeline leveraging TiDB, TiCDC, and Kafka.
-This project simulates a distributed database environment that streams row-level changes to a message broker for downstream consumption.
+Real-time Change Data Capture (CDC) pipeline that captures row-level changes from a distributed TiDB cluster and streams them to Apache Kafka using the Canal-JSON protocol.
 
 ## Architecture
 
-**Flow:** `TiDB (SQL)` -> `TiKV (Storage)` -> `TiCDC (Capture)` -> `Kafka (Broker)`
+```
+TiDB (SQL Interface) → TiKV (Storage) → TiCDC (Capture) → Kafka (Broker) → [Planned] Node.js Consumer
+```
 
-### Services
-* **TiDB:** Distributed SQL Database (MySQL Compatible).
-* **TiKV:** Distributed Key-Value Storage engine.
-* **PD (Placement Driver):** Cluster manager and metadata store.
-* **TiCDC:** Change Data Capture tool for replicating changes to other systems.
-* **Kafka:** Event streaming platform (using Confluent image).
-* **Zookeeper:** Coordinator for Kafka.
+## Project Status
 
-## Prerequisites
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **1. Infrastructure** | Docker Compose stack, ARM64 compatibility, Changefeed setup | ✅ Done |
+| **2. Application** | Node.js Kafka consumer, E2E testing | 🚧 Pending |
 
-* Docker
-* Docker Compose
-* *Note:* Optimized for Apple Silicon (M-series processor) architecture.
+## Services
 
-## Getting Started
+| Service | Port | Role |
+|---------|------|------|
+| **TiDB** | 4000 | SQL Layer (MySQL Compatible) |
+| **PD** | 2379 | Cluster Metadata & Orchestration |
+| **TiKV** | 20160 | Distributed Key-Value Store |
+| **TiCDC** | 8300 | Change Data Capture Engine |
+| **Kafka** | 9092 | Event Streaming Broker |
+| **Zookeeper** | 2181 | Kafka Coordinator |
 
-1.  **Start the infrastructure:**
-    ```bash
-    docker-compose up -d
-    ```
+## Quick Start
 
-2.  **Verify services are running:**
-    ```bash
-    docker-compose ps
-    ```
-    *Ensure all 6 containers are in `Up` / `Running` state.*
+**1. Start the stack**
+```bash
+docker-compose up -d
+```
 
-3.  **Initialize the Changefeed (One-time setup):**
-    Connect TiCDC to Kafka to start the replication task:
-    ```bash
-    docker-compose exec ticdc \
-      /cdc cli changefeed create \
-      --server=http://ticdc:8300 \
-      --sink-uri="kafka://kafka:9092/tidb-test?protocol=canal-json" \
-      --changefeed-id="simple-replication-task"
-    ```
+**2. Verify all containers are running**
+```bash
+docker-compose ps
+```
 
-## 🔌 Port Configuration
+**3. Create the Changefeed (run once)**
+```bash
+docker-compose exec ticdc \
+  /cdc cli changefeed create \
+  --server=http://ticdc:8300 \
+  --sink-uri="kafka://kafka:9092/tidb-test?protocol=canal-json" \
+  --changefeed-id="simple-replication-task"
+```
 
-| Service   | Local Port | Internal Port | Description |
-|-----------|------------|---------------|-------------|
-| TiDB      | `4000`     | `4000`        | SQL Interface |
-| PD        | `2379`     | `2379`        | Cluster Manager |
-| TiCDC     | `8300`     | `8300`        | CDC Management |
-| Kafka     | `9092`     | `9092`        | Kafka Broker |
+**4. Verify Changefeed status**
+```bash
+docker-compose exec ticdc /cdc cli changefeed list --server=http://ticdc:8300
+```
+
+The changefeed should report `normal` state.
+
+## Tech Stack
+
+- **Database:** TiDB (PD + TiKV + TiDB)
+- **CDC:** TiCDC with Canal-JSON protocol
+- **Messaging:** Apache Kafka + Zookeeper
+- **Platform:** Docker Compose, ARM64/Apple Silicon compatible

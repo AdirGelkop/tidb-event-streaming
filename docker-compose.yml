@@ -128,7 +128,7 @@ services:
     command:
       - /cdc                    # The binary executable entrypoint inside the container
       - server                  # Run in "server" mode to capture and replicate changes
-      - --pd=pd:2379            # Connect to PD (Placement Driver) to receive cluster instructions
+      - --pd=http://pd:2379            # Connect to PD (Placement Driver) to receive cluster instructions
       - --addr=0.0.0.0:8300     # Bind and listen for incoming API requests on all interfaces
       - --advertise-addr=ticdc:8300 # The address other nodes/clients should use to reach this service
     # Wait for the cluster to be ready
