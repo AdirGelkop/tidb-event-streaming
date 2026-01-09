@@ -4,41 +4,54 @@ Real-time Change Data Capture (CDC) pipeline that captures row-level changes fro
 
 ## Architecture
 
-```
-TiDB (SQL Interface) → TiKV (Storage) → TiCDC (Capture) → Kafka (Broker) → [Planned] Node.js Consumer
+```mermaid
+graph LR
+    A[TiDB SQL Interface] -- Writes --> B[(TiKV Storage)]
+    B -- Raw Events --> C[TiCDC Capture Service]
+    C -- Canal-JSON Protocol --> D{Apache Kafka}
+    D -- Topic: tidb-test --> E[Node.js Consumer]
 ```
 
 ## Project Status
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| **1. Infrastructure** | Docker Compose stack, ARM64 compatibility, Changefeed setup | ✅ Done |
-| **2. Application** | Node.js Kafka consumer, E2E testing | 🚧 Pending |
+| 1. Infrastructure | Docker Compose stack, ARM64 compatibility, Network configuration | ✅ Completed |
+| 2. Application | Node.js Kafka consumer implementation, E2E validation | 🚧 Pending |
 
-## Services
+## Services Inventory
 
-| Service | Port | Role |
-|---------|------|------|
-| **TiDB** | 4000 | SQL Layer (MySQL Compatible) |
-| **PD** | 2379 | Cluster Metadata & Orchestration |
-| **TiKV** | 20160 | Distributed Key-Value Store |
-| **TiCDC** | 8300 | Change Data Capture Engine |
-| **Kafka** | 9092 | Event Streaming Broker |
-| **Zookeeper** | 2181 | Kafka Coordinator |
+| Service | Port (Host) | Role |
+|---------|-------------|------|
+| TiDB | 4000 | SQL Layer (MySQL Compatible) |
+| PD | 2379 | Cluster Metadata & Orchestration |
+| TiKV | 20160 | Distributed Key-Value Store |
+| TiCDC | 8300 | Change Data Capture Engine |
+| Kafka | 9092 | Event Streaming Broker |
+| Zookeeper | 2181 | Kafka Coordinator |
 
-## Quick Start
+## Deployment Instructions
 
-**1. Start the stack**
+### 1. Provision Infrastructure
+
+Start the container stack in detached mode:
+
 ```bash
 docker-compose up -d
 ```
 
-**2. Verify all containers are running**
+### 2. Verify Health Status
+
+Ensure all containers report `Up` status:
+
 ```bash
 docker-compose ps
 ```
 
-**3. Create the Changefeed (run once)**
+### 3. Initialize Replication Pipeline
+
+Execute the following command to register the Changefeed task in the TiCDC server:
+
 ```bash
 docker-compose exec ticdc \
   /cdc cli changefeed create \
@@ -47,16 +60,36 @@ docker-compose exec ticdc \
   --changefeed-id="simple-replication-task"
 ```
 
-**4. Verify Changefeed status**
+**Command Breakdown:**
+- `docker-compose exec ticdc` - Execute a command inside the running TiCDC container
+- `/cdc cli changefeed create` - Binary entrypoint and sub-command to initiate a new replication task
+- `--server` - HTTP endpoint of the TiCDC server for management operations
+- `--sink-uri` - Destination configuration string:
+  - `kafka://kafka:9092` - Protocol and broker address
+  - `/tidb-test` - Target Kafka topic name
+  - `?protocol=canal-json` - Data serialization format
+
+### 4. Validation
+
+Verify that the changefeed is in `normal` state:
+
 ```bash
 docker-compose exec ticdc /cdc cli changefeed list --server=http://ticdc:8300
 ```
 
-The changefeed should report `normal` state.
+## Version Control Strategy
+
+The `.gitignore` file excludes:
+
+| Pattern | Reason |
+|---------|--------|
+| `.DS_Store` | macOS metadata files |
+| `node_modules/` | Dependencies installed via `npm install` |
+| `.env` | Sensitive environment variables and secrets |
 
 ## Tech Stack
 
 - **Database:** TiDB (PD + TiKV + TiDB)
 - **CDC:** TiCDC with Canal-JSON protocol
 - **Messaging:** Apache Kafka + Zookeeper
-- **Platform:** Docker Compose, ARM64/Apple Silicon compatible
+- **Infrastructure:** Docker Compose (Optimized for Apple Silicon / ARM64)
