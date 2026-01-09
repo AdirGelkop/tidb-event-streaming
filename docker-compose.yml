@@ -17,7 +17,7 @@ services:
   # Service 1: Zookeeper (Required to manage Kafka)
   zookeeper:
     # Use specific version for stability
-    image: bitnami/zookeeper:3.9.1
+    image: zookeeper:3.9
     # Connect to our custom network
     networks:
       - streaming-net
@@ -26,13 +26,12 @@ services:
       - "2181:2181"
     # Configuration environment variables
     environment:
-      # Allow connection without password (Dev only)
-      - ALLOW_ANONYMOUS_LOGIN=yes
-  
+      - ZOO_MY_ID=1  # Unique server ID (Required by official image)
+
 # Service 2: Kafka Broker (The message queue)
   kafka:
-    # Use specific version compatible with Zookeeper
-    image: bitnami/kafka:3.6.1
+    # Zookeeper Confluent Image - The Standard for Mac
+    image: confluentinc/cp-kafka:7.6.0
     # Connect to the same network
     networks:
       - streaming-net
@@ -41,16 +40,11 @@ services:
       - "9092:9092"
     # Configuration environment variables
     environment:
-      # Unique ID for the broker in the cluster
-      - KAFKA_BROKER_ID=1
-      # Connection string to Zookeeper (service_name:port)
-      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
-      # Internal listener (How Kafka binds to the interface)
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
-      # External listener (The address clients MUST use)
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      # Allow unencrypted traffic (Dev only)
-      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_BROKER_ID=1                                      # Unique integer ID for this broker
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181                 # Connection string to Zookeeper
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092      # Network address reachable by clients (TiCDC)
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT # Protocol mapping for communication
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1               # Set to 1 for single-node (Default is 3)
     # Ensure Zookeeper starts before Kafka
     depends_on:
       - zookeeper
@@ -132,9 +126,11 @@ services:
       - "8300:8300"
     # Start command
     command:
-      - --pd=pd:2379            # Connect to PD to watch for changes
-      - --addr=0.0.0.0:8300     # Listen for commands on port 8300
-      - --advertise-addr=ticdc:8300
+      - /cdc                    # The binary executable entrypoint inside the container
+      - server                  # Run in "server" mode to capture and replicate changes
+      - --pd=pd:2379            # Connect to PD (Placement Driver) to receive cluster instructions
+      - --addr=0.0.0.0:8300     # Bind and listen for incoming API requests on all interfaces
+      - --advertise-addr=ticdc:8300 # The address other nodes/clients should use to reach this service
     # Wait for the cluster to be ready
     depends_on:
       - pd
