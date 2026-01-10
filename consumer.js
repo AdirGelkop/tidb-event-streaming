@@ -1,28 +1,54 @@
 const { Kafka } = require('kafkajs');
+const express = require('express'); // 1. Import Express
 
-//async function to run the consumer
+const app = express();
+const port = 3000;
+
+// 2. In-Memory Store to cache events
+const events = [];
+
+const kafka = new Kafka({
+  clientId: 'my-app',
+  brokers: ['localhost:9093']
+});
+
+const consumer = kafka.consumer({ groupId: 'test-group' });
+
 const run = async () => {
-  // 1. Config: Point to localhost because we are running on Mac
-  const kafka = new Kafka({
-    clientId: 'my-app',
-    brokers: ['localhost:9093'] 
+  // Connect to Kafka
+  await consumer.connect();
+  console.log('Connected to Kafka');
+  
+  await consumer.subscribe({ topic: 'tidb-test', fromBeginning: true });
+
+  // 3. Define the Web Server API
+  app.get('/', (req, res) => {
+    // Return the events array as JSON when accessed by browser
+    res.json({
+      status: 'Online',
+      count: events.length,
+      data: events
+    });
   });
 
-  const consumer = kafka.consumer({ groupId: 'test-group' });
+  // Start the Web Server
+  app.listen(port, () => {
+    console.log(`Web Server running at http://localhost:${port}`);
+  });
 
-  // 2. Connect to the broker
-  await consumer.connect();
-  console.log("Connected to Kafka");
-
-  // 3. Subscribe: Topic name must match the Changefeed sink-uri
-  // not fromBeginning: false to read only new messages
-  await consumer.subscribe({ topic: 'tidb-test', fromBeginning: false });
-
-  // 4. Run: Infinite loop to process incoming messages
+  // Consume Kafka Messages
   await consumer.run({
-    eachMessage: async ({ message }) => {
-      // Message comes as Buffer (binary), convert to String
-      console.log(message.value.toString());
+    eachMessage: async ({ topic, partition, message }) => {
+      const value = message.value.toString();
+      console.log('New Event:', value);
+      
+      // 4. Store event in memory instead of just logging
+      try {
+        const jsonValue = JSON.parse(value);
+        events.unshift(jsonValue); // Add to the top of the list
+      } catch (e) {
+        events.unshift({ raw: value });
+      }
     },
   });
 };

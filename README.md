@@ -1,6 +1,6 @@
-# TiDB Event Streaming Pipeline
+# TiDB Real-Time CDC Pipeline
 
-Real-time Change Data Capture (CDC) pipeline that captures row-level changes from a distributed TiDB cluster and streams them to Apache Kafka using the Canal-JSON protocol.
+A real-time data ingestion pipeline that captures row-level changes from a distributed TiDB cluster and streams them to a Node.js Web API via Apache Kafka using the Canal-JSON protocol.
 
 ## Architecture
 
@@ -9,7 +9,8 @@ graph LR
     A[TiDB SQL Interface] -- Writes --> B[(TiKV Storage)]
     B -- Raw Events --> C[TiCDC Capture Service]
     C -- Canal-JSON Protocol --> D{Apache Kafka}
-    D -- Topic: tidb-test --> E[Node.js Consumer]
+    D -- Topic: tidb-test --> E[Node.js Web API]
+    E -- JSON Response --> F[Browser / Dashboard]
 ```
 
 ## Project Status
@@ -17,8 +18,9 @@ graph LR
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1. Infrastructure | Docker Compose stack, ARM64 compatibility, Network configuration | ✅ Completed |
-| 2. Application | Node.js Kafka consumer implementation | ✅ Completed |
-| 3. Validation | End-to-End data flow verification | ✅ Completed |
+| 2. Pipeline | TiCDC to Kafka changefeed configuration | ✅ Completed |
+| 3. Application | Node.js Express Server with Kafka Consumer | ✅ Completed |
+| 4. Validation | End-to-End data flow verification via Browser | ✅ Completed |
 
 ## Development Process & Technical Decisions
 
@@ -38,11 +40,13 @@ This section details the "Why" and "How" for future reference, specifically focu
 - **Why:** TiCDC acts as the replication engine, converting raw Key-Value changes into structured Canal-JSON events
 - **Configuration:** Mapped the sink URI to `kafka://kafka:9092` (using the internal listener)
 
-### 3. Application Layer (Node.js)
+### 3. Application Layer (Node.js & Express)
 
-- **Action:** Developed a custom Consumer using `kafkajs`
-- **Configuration:** Pointed the consumer to `localhost:9093` (the external listener)
-- **Logic:** The script connects, subscribes to the topic, and deserializes the JSON payload to print row changes
+- **Action:** Developed a Consumer that doubles as a Web Server
+- **Why:** To visualize the data stream in a browser (simulating a monitoring dashboard) rather than viewing raw logs in a terminal
+- **Logic:**
+  - **Ingestion:** Connects to Kafka on port 9093 and pushes incoming events to an in-memory array
+  - **Presentation:** Uses `express` to serve the data array as a JSON API on port 3000
 
 ### 4. Validation Strategy (Ephemeral Containers)
 
@@ -60,7 +64,7 @@ This section details the "Why" and "How" for future reference, specifically focu
 | TiKV | 20160 | - | Distributed Key-Value Store |
 | TiCDC | 8300 | 8300 | Change Data Capture Engine |
 | Kafka | 9092 | **9093** | Event Streaming Broker |
-| Zookeeper | 2181 | 2181 | Kafka Coordinator |
+| Web API | - | **3000** | Data Visualization Endpoint |
 
 ## Deployment Instructions
 
@@ -94,23 +98,20 @@ docker-compose exec ticdc \
 
 ### 4. Setup & Run Consumer Application
 
-To start listening for changes, set up the local Node.js environment. Note that the code points to port 9093 (External):
+Install dependencies (including Express) and start the server:
 
 ```bash
-# 1. Install dependencies
-npm install
-
-# 2. Run the Consumer script
+npm install express kafkajs
 node consumer.js
 ```
 
 ### 5. End-to-End Validation
 
-1. Keep the `consumer.js` terminal running (it will block and wait for events)
+1. Open your browser and navigate to: `http://localhost:3000`
+   
+   *Expectation: You should see a JSON object with status "Online"*
 
-2. Open a new terminal
-
-3. Spawn a temporary MySQL client container to insert data:
+2. Open a new terminal to insert data using a temporary MySQL container:
 
    > **Note:** Ensure the network name matches your local docker network (usually `folder-name_network-name`)
 
@@ -121,21 +122,23 @@ node consumer.js
      mysql -h tidb -P 4000 -u root
    ```
 
-4. Inside the MySQL shell, execute a transaction:
+3. Inside the MySQL shell, execute a transaction:
 
    ```sql
    CREATE DATABASE IF NOT EXISTS final_test;
    USE final_test;
    CREATE TABLE IF NOT EXISTS messages (id INT PRIMARY KEY, content VARCHAR(50));
-   INSERT INTO messages (id, content) VALUES (200, 'Mission Accomplished');
+   INSERT INTO messages (id, content) VALUES (500, 'Live Web Update');
    ```
 
-5. Verify that the JSON event appears immediately in the Consumer terminal
+4. Refresh the browser at `http://localhost:3000`
+   
+   *Expectation: The JSON data array should now contain the new row*
 
 ## Tech Stack
 
 - **Database:** TiDB (PD + TiKV + TiDB)
 - **CDC:** TiCDC with Canal-JSON protocol
 - **Messaging:** Apache Kafka + Zookeeper
-- **Application:** Node.js + KafkaJS client
+- **Application:** Node.js + Express + KafkaJS
 - **Infrastructure:** Docker Compose (Optimized for Apple Silicon / ARM64)
