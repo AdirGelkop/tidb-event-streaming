@@ -17,7 +17,26 @@ graph LR
 | Phase | Description | Status |
 |-------|-------------|--------|
 | 1. Infrastructure | Docker Compose stack, ARM64 compatibility, Network configuration | ✅ Completed |
-| 2. Application | Node.js Kafka consumer implementation, E2E validation | 🚧 Pending |
+| 2. Application | Node.js Kafka consumer implementation | ✅ Implemented |
+| 3. Validation | End-to-End data flow verification | 🚧 In Progress |
+
+## Development Process
+
+We followed a bottom-up approach to ensure stability at each layer:
+
+### 1. Infrastructure Layer (Docker)
+- **What:** Defined a `docker-compose` stack with TiDB components (PD, TiKV, TiDB, TiCDC) and Kafka (Broker + Zookeeper)
+- **Why:** To simulate a distributed production environment locally on macOS/Silicon
+
+### 2. Pipeline Layer (TiCDC)
+- **What:** Configured a `changefeed` to capture data from TiKV and push it to Kafka
+- **Why:** To establish the "pipe" that automatically moves data events without application logic
+- **How:** Used the `ticdc cli` binary inside the container to map the source to the sink (`kafka://...`)
+
+### 3. Application Layer (Node.js)
+- **What:** Developed a custom Consumer script using the `kafkajs` client library
+- **Why:** To demonstrate how an external application programmatically consumes and processes the data stream
+- **How:** Initialized a Node.js project (`npm init`) and implemented the connection/subscription logic in `consumer.js`
 
 ## Services Inventory
 
@@ -42,7 +61,7 @@ docker-compose up -d
 
 ### 2. Verify Health Status
 
-Ensure all containers report `Up` status:
+Ensure all containers report `Up` status (check specifically for `ticdc` and `kafka`):
 
 ```bash
 docker-compose ps
@@ -60,22 +79,28 @@ docker-compose exec ticdc \
   --changefeed-id="simple-replication-task"
 ```
 
-**Command Breakdown:**
-- `docker-compose exec ticdc` - Execute a command inside the running TiCDC container
-- `/cdc cli changefeed create` - Binary entrypoint and sub-command to initiate a new replication task
-- `--server` - HTTP endpoint of the TiCDC server for management operations
-- `--sink-uri` - Destination configuration string:
-  - `kafka://kafka:9092` - Protocol and broker address
-  - `/tidb-test` - Target Kafka topic name
-  - `?protocol=canal-json` - Data serialization format
+### 4. Setup & Run Consumer Application
 
-### 4. Validation
-
-Verify that the changefeed is in `normal` state:
+To start listening for changes, set up the local Node.js environment:
 
 ```bash
-docker-compose exec ticdc /cdc cli changefeed list --server=http://ticdc:8300
+# 1. Install dependencies (creates node_modules)
+npm install
+
+# 2. Run the Consumer script
+node consumer.js
 ```
+
+### 5. Validation (Manual Test)
+
+1. Keep the `consumer.js` terminal running
+2. Open a new terminal and connect to the database:
+
+```bash
+docker-compose exec tidb mysql -u root -h tidb -P 4000
+```
+
+3. Execute SQL commands (`INSERT`, `UPDATE`) and observe the JSON output in the consumer terminal
 
 ## Version Control Strategy
 
@@ -92,4 +117,5 @@ The `.gitignore` file excludes:
 - **Database:** TiDB (PD + TiKV + TiDB)
 - **CDC:** TiCDC with Canal-JSON protocol
 - **Messaging:** Apache Kafka + Zookeeper
+- **Application:** Node.js + KafkaJS client
 - **Infrastructure:** Docker Compose (Optimized for Apple Silicon / ARM64)

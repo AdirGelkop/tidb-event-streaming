@@ -1,0 +1,24 @@
+{
+  "name": "tidb-event-streaming",
+  "version": "1.0.0",
+  "description": "Real-time Change Data Capture (CDC) pipeline that captures row-level changes from a distributed TiDB cluster and streams them to Apache Kafka using the Canal-JSON protocol.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AdirGelkop/tidb-event-streaming.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/AdirGelkop/tidb-event-streaming/issues"
+  },
+  "homepage": "https://github.com/AdirGelkop/tidb-event-streaming#readme",
+  "dependencies": {
+    "kafkajs": "^2.2.4"
+  }
+}
